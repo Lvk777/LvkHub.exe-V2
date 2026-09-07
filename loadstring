@@ -1,1 +1,1 @@
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Lvk777/LvkHub.exe/main/loader.lua",true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Lvk777/LvkHub.exe-V2/main/loader.lua",true))()
