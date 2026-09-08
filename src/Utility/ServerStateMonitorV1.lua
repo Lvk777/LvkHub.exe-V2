@@ -4,7 +4,6 @@
 return function(State, Registry, UI)
     local Players = game:GetService("Players")
     local RunService = game:GetService("RunService")
-    local Workspace = game:GetService("Workspace")
 
     local LP = Players.LocalPlayer
     local page = UI.Pages.Utility or UI.Pages.Local
@@ -32,8 +31,8 @@ return function(State, Registry, UI)
     local monitor = {
         Version = 1,
         Enabled = false,
-        WalkSpeedCorrections = 0,
-        LastWalkSpeedCorrection = nil,
+        WalkSpeedMismatches = 0,
+        LastWalkSpeedMismatch = nil,
         LastSnapshot = nil,
     }
     shared.LvkHubServerMonitor = monitor
@@ -41,7 +40,6 @@ return function(State, Registry, UI)
     local humConnection = nil
     local currentHumanoid = nil
     local suppressUntil = 0
-    local lastExpectedWalkSpeed = nil
     local lastObservedWalkSpeed = nil
 
     local function character()
@@ -89,17 +87,16 @@ return function(State, Registry, UI)
             local previous = lastObservedWalkSpeed
             lastObservedWalkSpeed = observed
 
-            -- Only classify a correction while the LvkHub Speed feature is asking
-            -- for a concrete value. This remains observational: no write is made.
+            -- Record a visible mismatch while the Speed feature requests a value.
+            -- A mismatch can have multiple causes and is not proof of anticheat.
             if expected and math.abs(observed - expected) > 0.05 and now >= suppressUntil then
-                monitor.WalkSpeedCorrections += 1
-                monitor.LastWalkSpeedCorrection = {
+                monitor.WalkSpeedMismatches += 1
+                monitor.LastWalkSpeedMismatch = {
                     time = now,
                     expected = expected,
                     observed = observed,
                     previous = previous,
                 }
-                -- Debounce bursts caused by one replicated/state transition.
                 suppressUntil = now + 0.12
             end
         end)
@@ -142,7 +139,7 @@ return function(State, Registry, UI)
 
         local expectedWS = expectedWalkSpeed(hum)
         local observedWS = hum and hum.WalkSpeed or nil
-        local requestedFly = expectedFlySpeed()
+        local configuredFly = expectedFlySpeed()
         local actualVelocity = root and root.AssemblyLinearVelocity or nil
         local actualSpeed = actualVelocity and actualVelocity.Magnitude or nil
         local hunger, thirst, maxHunger, maxThirst = readVitals()
@@ -153,8 +150,8 @@ return function(State, Registry, UI)
             character = ch and ch:GetFullName() or nil,
             walkSpeedRequested = expectedWS,
             walkSpeedObserved = observedWS,
-            walkSpeedCorrections = monitor.WalkSpeedCorrections,
-            flyRequested = requestedFly,
+            walkSpeedMismatches = monitor.WalkSpeedMismatches,
+            flyConfigured = configuredFly,
             assemblyVelocity = actualVelocity,
             assemblySpeed = actualSpeed,
             hunger = tonumber(hunger),
@@ -169,8 +166,8 @@ return function(State, Registry, UI)
 
     monitor.Snapshot = snapshot
     monitor.ResetCounters = function()
-        monitor.WalkSpeedCorrections = 0
-        monitor.LastWalkSpeedCorrection = nil
+        monitor.WalkSpeedMismatches = 0
+        monitor.LastWalkSpeedMismatch = nil
     end
 
     local function fmt(n, decimals)
@@ -193,10 +190,10 @@ return function(State, Registry, UI)
         if data.walkSpeedRequested then
             local mismatch = data.walkSpeedObserved and math.abs(data.walkSpeedObserved - data.walkSpeedRequested) > 0.05
             wsLabel.Text = string.format(
-                "WalkSpeed requested %s • observed %s • corrections %d%s",
+                "WalkSpeed requested %s • observed %s • mismatches %d%s",
                 fmt(data.walkSpeedRequested),
                 fmt(data.walkSpeedObserved),
-                data.walkSpeedCorrections or 0,
+                data.walkSpeedMismatches or 0,
                 mismatch and " • MISMATCH" or ""
             )
             wsLabel.TextColor3 = mismatch and Color3.fromRGB(245, 170, 80) or Color3.fromRGB(80, 225, 125)
@@ -205,10 +202,10 @@ return function(State, Registry, UI)
             wsLabel.TextColor3 = Color3.fromRGB(145, 150, 170)
         end
 
-        if data.flyRequested then
+        if data.flyConfigured then
             motionLabel.Text = string.format(
-                "Fly requested %s • observed assembly speed %s • diagnostic only",
-                fmt(data.flyRequested),
+                "Fly configured %s • observed assembly speed %s • diagnostic only",
+                fmt(data.flyConfigured),
                 fmt(data.assemblySpeed, true)
             )
         else
