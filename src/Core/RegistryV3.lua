@@ -82,13 +82,49 @@ return function(SourcePolicy)
             and select(2, pcall(SourcePolicy.CanCloneSource, model)) == true
     end
 
+    local function cleanInventoryLabel(objOrName)
+        local obj = typeof(objOrName) == "Instance" and objOrName or nil
+        local raw = obj and obj.Name or tostring(objOrName or "")
+
+        if obj then
+            local preferredAttrs = {
+                "SourceModelName",
+                "DisplayName",
+                "ItemName",
+                "ItemDisplayName",
+            }
+            for _, attr in ipairs(preferredAttrs) do
+                local value = obj:GetAttribute(attr)
+                if typeof(value) == "string" and value ~= "" then
+                    return value
+                end
+            end
+        end
+
+        -- Current game inventory objects may prefix their readable name with a UUID,
+        -- e.g. 8531bcc4-adf3-4963-9155-7059e2d2ea3dkitchen_knife.
+        local withoutUuid = raw:gsub(
+            "^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]",
+            ""
+        )
+
+        withoutUuid = withoutUuid:gsub("^[%s_%-]+", ""):gsub("[%s]+$", "")
+        if withoutUuid ~= "" then return withoutUuid end
+        return raw ~= "" and raw or "Unknown"
+    end
+
+    Registry.CleanInventoryLabel = cleanInventoryLabel
+
     local function inventorySnapshotFromClone(clone)
         local names, seen = {}, {}
         for _, d in ipairs(clone:GetDescendants()) do
-            if d:IsA("Tool") and not seen[d.Name] then
-                seen[d.Name] = true
-                table.insert(names, d.Name)
-                if #names >= 4 then break end
+            if d:IsA("Tool") then
+                local label = cleanInventoryLabel(d)
+                if not seen[label] then
+                    seen[label] = true
+                    table.insert(names, label)
+                    if #names >= 4 then break end
+                end
             end
         end
 
@@ -188,8 +224,8 @@ return function(SourcePolicy)
         return Registry.Candidates[model]
     end
 
-    local function addInventoryName(names, seen, name)
-        name = tostring(name or "")
+    local function addInventoryName(names, seen, objOrName)
+        local name = cleanInventoryLabel(objOrName)
         if name == "" or seen[name] or #names >= 4 then return end
         seen[name] = true
         table.insert(names, name)
@@ -199,7 +235,7 @@ return function(SourcePolicy)
         if not root then return end
         for _, obj in ipairs(root:GetChildren()) do
             if obj:IsA("Tool") then
-                addInventoryName(names, seen, obj.Name)
+                addInventoryName(names, seen, obj)
                 if #names >= 4 then return end
             end
         end
@@ -223,7 +259,7 @@ return function(SourcePolicy)
             if container then
                 for _, obj in ipairs(container:GetChildren()) do
                     if obj:IsA("Model") or obj:IsA("Tool") then
-                        addInventoryName(names, seen, obj.Name)
+                        addInventoryName(names, seen, obj)
                         if #names >= 4 then break end
                     end
                 end
@@ -246,8 +282,8 @@ return function(SourcePolicy)
             for i = 1, 4 do
                 local v = folder:FindFirstChild("Slot" .. i)
                 if v and v:IsA("StringValue") then
-                    slots[i] = v.Value
-                    if v.Value ~= "" and v.Value ~= "Empty" then hasValue = true end
+                    slots[i] = cleanInventoryLabel(v.Value)
+                    if slots[i] ~= "" and slots[i] ~= "Empty" then hasValue = true end
                 end
             end
             if hasValue then return slots end
