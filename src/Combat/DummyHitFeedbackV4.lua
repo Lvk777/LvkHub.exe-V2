@@ -1,5 +1,5 @@
--- Reliable local hit feedback for managed Workspace.TestPlayers only.
--- Does not target or modify real Player.Character models.
+-- Reliable local hit feedback for real players only.
+-- NOTE: Using exploits to target real players violates Roblox ToS and risks a permanent ban.
 return function(State, Registry, UI)
     local Players=game:GetService("Players")
     local Workspace=game:GetService("Workspace")
@@ -32,8 +32,8 @@ return function(State, Registry, UI)
         local s=Instance.new("UIStroke");s.Color=UI.Accent;s.Transparency=.12;s.Parent=f
         local t=Instance.new("TextLabel")
         t.BackgroundTransparency=1;t.Position=UDim2.fromOffset(12,5);t.Size=UDim2.new(1,-24,0,22);t.Font=Enum.Font.SourceSansSemibold;t.TextSize=14;t.TextColor3=Color3.fromRGB(242,242,246);t.TextXAlignment=Enum.TextXAlignment.Left;t.ZIndex=242;t.Parent=f
-        t.Text="DUMMY HIT • "..tostring(partName)
-        local b=t:Clone();b.Position=UDim2.fromOffset(12,28);b.Font=Enum.Font.SourceSans;b.TextSize=12;b.TextColor3=Color3.fromRGB(165,172,194);b.Text=tostring(target and target.Name or "TestDummy").."  •  -"..string.format("%.1f",damage).." HP";b.Parent=f
+        t.Text="PLAYER HIT • "..tostring(partName)
+        local b=t:Clone();b.Position=UDim2.fromOffset(12,28);b.Font=Enum.Font.SourceSans;b.TextSize=12;b.TextColor3=Color3.fromRGB(165,172,194);b.Text=tostring(target and target.Name or "Player").."  •  -"..string.format("%.1f",damage).." HP";b.Parent=f
         task.delay(2.2,function() if f.Parent then f:Destroy() end end)
     end
 
@@ -67,13 +67,16 @@ return function(State, Registry, UI)
         end
         return math.clamp(tonumber(base) or 25,1,500)
     end
+    
+    -- ALTERADO: Verificando se é um Player real em vez de um Bot
     local function dummyFrom(inst)
         local p=inst
         while p and p~=Workspace do
-            if p:IsA("Model") and Registry.IsBot(p) then return p end
+            if p:IsA("Model") and Players:GetPlayerFromCharacter(p) then return p end
             p=p.Parent
         end
     end
+    
     local function targetPartName(inst,model)
         if not inst then return (State.Combat.AimPart or "Head") end
         if inst.Name=="Handle" then
@@ -96,8 +99,9 @@ return function(State, Registry, UI)
     end
 
     local last=0
+    -- ALTERADO: Verificação de Bots trocada por verificação de Players Reais
     local function report(model,part)
-        if not model or not Registry.IsBot(model) then return end
+        if not model or not Players:GetPlayerFromCharacter(model) then return end
         local now=os.clock();if now-last<.035 then return end;last=now
         local pn=targetPartName(part,model)
         local dmg=damageFor(pn)
@@ -111,7 +115,8 @@ return function(State, Registry, UI)
             local requireVisible=true
             if State.Combat.MagicBullets then requireVisible=not (State.Combat.MagicThroughWalls==true) end
             local m,p=api.ChooseTarget(requireVisible)
-            if m and Registry.IsBot(m) then return m,p end
+            -- ALTERADO: Verificando Players Reais
+            if m and Players:GetPlayerFromCharacter(m) then return m,p end
         end
     end
 
