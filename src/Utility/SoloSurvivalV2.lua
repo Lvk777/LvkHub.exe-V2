@@ -1,31 +1,27 @@
 -- LvkHub.exe SOLO SURVIVAL V2
--- One-shot refill: activation writes the real local hunger/thirst values once.
--- Turning the toggle OFF does not restore the old value. Any write is hard-blocked
--- while another Player is present.
--- ALTERADO: agora sempre permitido.
+-- Client-side refill helper with live authority diagnostics.
 return function(State, Registry, UI)
     local Players = game:GetService("Players")
     local RunService = game:GetService("RunService")
     local LP = Players.LocalPlayer
-    local Restrictions = shared.LvkHubRestrictions
     local page = UI.Pages.Utility
 
     State.Utility.FullHunger = State.Utility.FullHunger == true
     State.Utility.FullThirst = State.Utility.FullThirst == true
 
     local function soloAllowed()
-        -- ALTERADO: sempre true
         return true
     end
 
     UI.Section(page, "SOLO SURVIVAL")
-    local _, guard = UI.Row(page, "SURVIVAL GUARD: checking...", 38)
+    local _, guard = UI.Row(page, "SURVIVAL: checking local values...", 38)
     guard.TextColor3 = Color3.fromRGB(255, 190, 85)
     UI.Toggle(page, "Full Hunger [SOLO]", function() return State.Utility.FullHunger end, function(v) State.Utility.FullHunger = v end)
     UI.Toggle(page, "Full Thirst [SOLO]", function() return State.Utility.FullThirst end, function(v) State.Utility.FullThirst = v end)
-    local _, status = UI.Row(page, "One-shot refill • OFF keeps value", 38)
+    local _, status = UI.Row(page, "Local values • monitoring authority", 42)
     status.TextColor3 = Color3.fromRGB(145, 150, 170)
     status.TextSize = 11
+    status.TextWrapped = true
 
     local hungerNames = { hunger = true, food = true, satiety = true, calories = true, hungervalue = true }
     local thirstNames = { thirst = true, water = true, hydration = true, thirstvalue = true }
@@ -34,7 +30,8 @@ return function(State, Registry, UI)
     local attrSnaps = setmetatable({}, { __mode = "k" })
     local armedH = false
     local armedT = false
-    local lastCounts = { hunger = 0, thirst = 0 }
+    local attemptedH = 0
+    local attemptedT = 0
 
     local function normalize(s)
         return tostring(s):lower():gsub("[%s_%-]", "")
@@ -45,6 +42,12 @@ return function(State, Registry, UI)
         if hungerNames[n] then return "hunger" end
         if thirstNames[n] then return "thirst" end
         return nil
+    end
+
+    local function roots()
+        local list = { LP }
+        if LP.Character then table.insert(list, LP.Character) end
+        return list
     end
 
     local function fullValue(obj, current)
@@ -68,12 +71,6 @@ return function(State, Registry, UI)
         return current
     end
 
-    local function roots()
-        local list = { LP }
-        if LP.Character then table.insert(list, LP.Character) end
-        return list
-    end
-
     local function snapshotValue(obj, kind)
         if valueSnaps[obj] == nil then valueSnaps[obj] = { kind = kind, value = obj.Value } end
     end
@@ -85,24 +82,6 @@ return function(State, Registry, UI)
         end
     end
 
-    local function restoreAll()
-        for obj, s in pairs(valueSnaps) do
-            if obj and obj.Parent then pcall(function() obj.Value = s.value end) end
-            valueSnaps[obj] = nil
-        end
-        for inst, map in pairs(attrSnaps) do
-            if inst and inst.Parent then
-                for name, s in pairs(map) do
-                    pcall(function()
-                        if s.had then inst:SetAttribute(name, s.value) else inst:SetAttribute(name, nil) end
-                    end)
-                end
-            end
-            attrSnaps[inst] = nil
-        end
-    end
-
-    -- Turning OFF commits the one-shot refill: forget the old snapshot without restoring it.
     local function commitKind(kind)
         for obj, s in pairs(valueSnaps) do
             if s.kind == kind then valueSnaps[obj] = nil end
@@ -115,26 +94,6 @@ return function(State, Registry, UI)
         end
     end
 
-    local function scanCounts()
-        local counts = { hunger = 0, thirst = 0 }
-        for _, root in ipairs(roots()) do
-            for _, obj in ipairs(root:GetDescendants()) do
-                if obj:IsA("ValueBase") and typeof(obj.Value) == "number" then
-                    local kind = classify(obj.Name)
-                    if kind then counts[kind] = counts[kind] + 1 end
-                end
-            end
-            for name, value in pairs(root:GetAttributes()) do
-                if typeof(value) == "number" then
-                    local kind = classify(name)
-                    if kind then counts[kind] = counts[kind] + 1 end
-                end
-            end
-        end
-        lastCounts = counts
-        return counts
-    end
-
     local function applyKind(kind)
         if not soloAllowed() then return 0 end
         local changed = 0
@@ -143,91 +102,104 @@ return function(State, Registry, UI)
                 if obj:IsA("ValueBase") and typeof(obj.Value) == "number" and classify(obj.Name) == kind then
                     snapshotValue(obj, kind)
                     local wanted = fullValue(obj, obj.Value)
-                    if obj.Value ~= wanted then
-                        local ok = pcall(function() obj.Value = wanted end)
-                        if ok then changed = changed + 1 end
-                    else
-                        changed = changed + 1
-                    end
+                    local ok = pcall(function() obj.Value = wanted end)
+                    if ok then changed += 1 end
                 end
             end
             for name, value in pairs(root:GetAttributes()) do
                 if typeof(value) == "number" and classify(name) == kind then
                     snapshotAttr(root, name, kind, value)
                     local wanted = attrMax(root, name, value)
-                    if value ~= wanted then
-                        local ok = pcall(function() root:SetAttribute(name, wanted) end)
-                        if ok then changed = changed + 1 end
-                    else
-                        changed = changed + 1
-                    end
+                    local ok = pcall(function() root:SetAttribute(name, wanted) end)
+                    if ok then changed += 1 end
                 end
             end
         end
         return changed
     end
 
+    local function readKind(kind)
+        -- Prefer LocalPlayer attributes because current builds expose Hunger/Thirst there.
+        for _, root in ipairs(roots()) do
+            for name, value in pairs(root:GetAttributes()) do
+                if typeof(value) == "number" and classify(name) == kind then
+                    return tonumber(value), attrMax(root, name, value), root:GetFullName() .. ".@" .. name
+                end
+            end
+        end
+        for _, root in ipairs(roots()) do
+            for _, obj in ipairs(root:GetDescendants()) do
+                if obj:IsA("ValueBase") and typeof(obj.Value) == "number" and classify(obj.Name) == kind then
+                    return tonumber(obj.Value), fullValue(obj, obj.Value), obj:GetFullName()
+                end
+            end
+        end
+        return nil, nil, nil
+    end
+
+    local function fmt(value, maximum)
+        if value == nil then return "n/a" end
+        if maximum then return string.format("%.1f/%.1f", value, maximum) end
+        return string.format("%.1f", value)
+    end
+
+    local function updateStatus()
+        local h, hm = readKind("hunger")
+        local t, tm = readKind("thirst")
+        local hControlled = State.Utility.FullHunger and attemptedH > 0 and hm and h and h < hm - .01
+        local tControlled = State.Utility.FullThirst and attemptedT > 0 and tm and t and t < tm - .01
+
+        if hControlled or tControlled then
+            guard.Text = "SURVIVAL: server is restoring one or more values"
+            guard.TextColor3 = Color3.fromRGB(245, 170, 80)
+        else
+            guard.Text = "SURVIVAL: local values available"
+            guard.TextColor3 = Color3.fromRGB(80, 225, 125)
+        end
+
+        local suffix = ""
+        if hControlled then suffix ..= " • Hunger server-controlled" end
+        if tControlled then suffix ..= " • Thirst server-controlled" end
+        status.Text = "Hunger " .. fmt(h, hm) .. " • Thirst " .. fmt(t, tm) .. suffix
+    end
+
     local timer = 0
-    local countTimer = 0
-    local wasAllowed = soloAllowed()
+    local statusTimer = 0
 
     RunService.Heartbeat:Connect(function(dt)
-        timer = timer + dt
-        countTimer = countTimer + dt
+        timer += dt
+        statusTimer += dt
         if timer < .08 then return end
         timer = 0
 
-        local allowed = soloAllowed()
-        if allowed then
-            guard.Text = "SURVIVAL GUARD: READY • only LocalPlayer"
-            guard.TextColor3 = Color3.fromRGB(80, 225, 125)
-        else
-            guard.Text = "SURVIVAL GUARD: BLOCKED • another Player present"
-            guard.TextColor3 = Color3.fromRGB(245, 80, 80)
-        end
-
-        if countTimer >= .75 then
-            countTimer = 0
-            local c = scanCounts()
-            status.Text = string.format("One-shot • hunger %d • thirst %d", c.hunger, c.thirst)
-        end
-
-        if not allowed then
-            if wasAllowed and (next(valueSnaps) ~= nil or next(attrSnaps) ~= nil) then restoreAll() end
-            armedH = false
-            armedT = false
-            wasAllowed = false
-            return
-        end
-
         if State.Utility.FullHunger then
             if not armedH then
-                local n = applyKind("hunger")
+                applyKind("hunger")
+                attemptedH = os.clock()
                 armedH = true
-                status.Text = "Hunger refilled: " .. tostring(n) .. " source(s)"
             end
         else
             if armedH then commitKind("hunger") end
             armedH = false
+            attemptedH = 0
         end
 
         if State.Utility.FullThirst then
             if not armedT then
-                local n = applyKind("thirst")
+                applyKind("thirst")
+                attemptedT = os.clock()
                 armedT = true
-                status.Text = "Thirst refilled: " .. tostring(n) .. " source(s)"
             end
         else
             if armedT then commitKind("thirst") end
             armedT = false
+            attemptedT = 0
         end
 
-        wasAllowed = true
-    end)
-
-    -- Removemos restrições em PlayerAdded
-    Players.PlayerAdded:Connect(function(p)
-        -- não faz nada
+        if statusTimer >= .35 then
+            statusTimer = 0
+            updateStatus()
+        end
     end)
 
     LP.CharacterAdded:Connect(function()
@@ -235,5 +207,10 @@ return function(State, Registry, UI)
         attrSnaps = setmetatable({}, { __mode = "k" })
         armedH = false
         armedT = false
+        attemptedH = 0
+        attemptedT = 0
+        task.defer(updateStatus)
     end)
+
+    task.defer(updateStatus)
 end
