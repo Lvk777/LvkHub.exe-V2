@@ -17,7 +17,7 @@ shared.LvkHubStartupHidden = true
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local SOURCE_BRANCH = tostring(shared.LvkHubSourceBranch or "main")
-local BUILD_TAG = "compat-2026-09-noclip-v2"
+local BUILD_TAG = "compat-2026-09-inventory-v4"
 shared.LvkHubRequestedSourceBranch = SOURCE_BRANCH
 shared.LvkHubLoadedSourceBranch = nil
 shared.LvkHubBuildTag = nil
@@ -166,6 +166,7 @@ local ok, err = pcall(function()
 
     loadModule("src/UI/Keybinds.lua")(State, TargetProvider, UI)
     loadModule("src/UI/DummyTargetInfo.lua")(State, TargetProvider, UI)
+    loadModule("src/UI/InventoryViewerV4.lua")(State, TargetProvider, UI)
     loadModule("src/UI/CompactLabels.lua")(State, UI)
     loadModule("src/UI/LocalPopupPolishV6.lua")(State, UI)
     loadModule("src/UI/SoloSurvivalToLocal.lua")(State, UI)
