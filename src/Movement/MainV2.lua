@@ -21,6 +21,15 @@ return function(State, Registry, UI)
     local speedHumanoid=nil
     local speedOriginal=nil
 
+    local movementRuntime={
+        Version=2,
+        NoclipEnabled=false,
+        NoclipAppliedParts=0,
+        NoclipRemainingCollidable=0,
+        LastNoclipTick=0,
+    }
+    shared.LvkHubMovementRuntime=movementRuntime
+
     local function character()
         local ch=LP.Character
         return ch, ch and ch:FindFirstChildOfClass("Humanoid"), ch and ch:FindFirstChild("HumanoidRootPart")
@@ -64,6 +73,43 @@ return function(State, Registry, UI)
         return v.Magnitude>0 and v.Unit or Vector3.zero
     end
 
+    local function restoreNoclip()
+        for part,original in pairs(noclipOriginal) do
+            if part and part.Parent then
+                pcall(function() part.CanCollide=original end)
+            end
+            noclipOriginal[part]=nil
+        end
+        movementRuntime.NoclipEnabled=false
+        movementRuntime.NoclipAppliedParts=0
+        movementRuntime.NoclipRemainingCollidable=0
+    end
+
+    local function applyNoclip()
+        local ch=LP.Character
+        if not ch or State.Movement.Noclip~=true then
+            if next(noclipOriginal)~=nil then restoreNoclip() end
+            return
+        end
+
+        local applied=0
+        local remaining=0
+        for _,part in ipairs(ch:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if noclipOriginal[part]==nil then noclipOriginal[part]=part.CanCollide end
+                if part.CanCollide then
+                    pcall(function() part.CanCollide=false end)
+                end
+                if part.CanCollide then remaining+=1 else applied+=1 end
+            end
+        end
+
+        movementRuntime.NoclipEnabled=true
+        movementRuntime.NoclipAppliedParts=applied
+        movementRuntime.NoclipRemainingCollidable=remaining
+        movementRuntime.LastNoclipTick=os.clock()
+    end
+
     UIS.InputBegan:Connect(function(input,processed)
         if processed or not State.Movement.MouseTP then return end
         if input.UserInputType==Enum.UserInputType.MouseButton1 and (UIS:IsKeyDown(Enum.KeyCode.LeftAlt) or UIS:IsKeyDown(Enum.KeyCode.RightAlt)) then
@@ -75,23 +121,20 @@ return function(State, Registry, UI)
         end
     end)
 
+    -- Collision state is applied before the physics step instead of after it.
+    -- This fixes the local case where Torso/Head could remain collidable even
+    -- while State.Movement.Noclip was true.
+    RunService.Stepped:Connect(function()
+        applyNoclip()
+    end)
+
     RunService.Heartbeat:Connect(function()
-        local ch,hum,root=character()
+        local _,hum,root=character()
         if State.Movement.Speed and hum then
             if not speedActive or speedHumanoid~=hum then restoreSpeed(); speedActive=true; speedHumanoid=hum; speedOriginal=hum.WalkSpeed end
             local wanted=State.Movement.SpeedValue or 32
             if math.abs(hum.WalkSpeed-wanted)>.01 then hum.WalkSpeed=wanted end
         elseif speedActive then restoreSpeed() end
-
-        if ch then
-            if State.Movement.Noclip then
-                for _,p in ipairs(ch:GetDescendants()) do
-                    if p:IsA("BasePart") then if noclipOriginal[p]==nil then noclipOriginal[p]=p.CanCollide end; p.CanCollide=false end
-                end
-            else
-                for p,v in pairs(noclipOriginal) do if p and p.Parent then p.CanCollide=v end; noclipOriginal[p]=nil end
-            end
-        end
 
         local cam=Workspace.CurrentCamera
         if State.Movement.Fly and root and hum and cam then
@@ -103,5 +146,12 @@ return function(State, Registry, UI)
         else clearFly() end
     end)
 
-    LP.CharacterAdded:Connect(function() restoreSpeed(); clearFly(); table.clear(noclipOriginal) end)
+    LP.CharacterAdded:Connect(function()
+        restoreSpeed()
+        clearFly()
+        table.clear(noclipOriginal)
+        movementRuntime.NoclipEnabled=false
+        movementRuntime.NoclipAppliedParts=0
+        movementRuntime.NoclipRemainingCollidable=0
+    end)
 end

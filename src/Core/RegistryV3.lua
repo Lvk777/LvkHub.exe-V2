@@ -67,7 +67,7 @@ return function(SourcePolicy)
     end
 
     function Registry.GetSourceLabel()
-        return "Workspace.Players" -- ALTERADO
+        return "Workspace.Players"
     end
 
     local function sourceFolder()
@@ -82,13 +82,49 @@ return function(SourcePolicy)
             and select(2, pcall(SourcePolicy.CanCloneSource, model)) == true
     end
 
+    local function cleanInventoryLabel(objOrName)
+        local obj = typeof(objOrName) == "Instance" and objOrName or nil
+        local raw = obj and obj.Name or tostring(objOrName or "")
+
+        if obj then
+            local preferredAttrs = {
+                "SourceModelName",
+                "DisplayName",
+                "ItemName",
+                "ItemDisplayName",
+            }
+            for _, attr in ipairs(preferredAttrs) do
+                local value = obj:GetAttribute(attr)
+                if typeof(value) == "string" and value ~= "" then
+                    return value
+                end
+            end
+        end
+
+        -- Current game inventory objects may prefix their readable name with a UUID,
+        -- e.g. 8531bcc4-adf3-4963-9155-7059e2d2ea3dkitchen_knife.
+        local withoutUuid = raw:gsub(
+            "^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]",
+            ""
+        )
+
+        withoutUuid = withoutUuid:gsub("^[%s_%-]+", ""):gsub("[%s]+$", "")
+        if withoutUuid ~= "" then return withoutUuid end
+        return raw ~= "" and raw or "Unknown"
+    end
+
+    Registry.CleanInventoryLabel = cleanInventoryLabel
+
     local function inventorySnapshotFromClone(clone)
         local names, seen = {}, {}
         for _, d in ipairs(clone:GetDescendants()) do
-            if d:IsA("Tool") and not seen[d.Name] then
-                seen[d.Name] = true
-                table.insert(names, d.Name)
-                if #names >= 4 then break end
+            if d:IsA("Tool") then
+                local label = cleanInventoryLabel(d)
+                if not seen[label] then
+                    seen[label] = true
+                    table.insert(names, label)
+                    if #names >= 4 then break end
+                end
             end
         end
 
@@ -133,20 +169,17 @@ return function(SourcePolicy)
         return CFrame.new(index * 6, 10, 0)
     end
 
-    -- ALTERADO: cloneRig agora retorna nil para não criar clones
     local function cloneRig(source, index)
         return nil
     end
 
     local syncing = false
     local function syncPracticeClones()
-        -- ALTERADO: desativado para não criar clones
         return
     end
 
     local function rebuildCandidates()
         table.clear(Registry.Candidates)
-        -- ALTERADO: popula com Players em vez de TestPlayers
         local folder = Workspace:FindFirstChild("Players")
         if folder then
             for _, child in ipairs(folder:GetChildren()) do
@@ -191,16 +224,73 @@ return function(SourcePolicy)
         return Registry.Candidates[model]
     end
 
+    local function addInventoryName(names, seen, objOrName)
+        local name = cleanInventoryLabel(objOrName)
+        if name == "" or seen[name] or #names >= 4 then return end
+        seen[name] = true
+        table.insert(names, name)
+    end
+
+    local function collectDirectTools(root, names, seen)
+        if not root then return end
+        for _, obj in ipairs(root:GetChildren()) do
+            if obj:IsA("Tool") then
+                addInventoryName(names, seen, obj)
+                if #names >= 4 then return end
+            end
+        end
+    end
+
+    local function replicatedInventorySnapshot(model)
+        local names, seen = {}, {}
+
+        -- Equipped Tool is replicated under Character.
+        collectDirectTools(model, names, seen)
+
+        -- Backpack may be visible for a Player on some game versions.
+        local player = Players:GetPlayerFromCharacter(model)
+        local backpack = player and player:FindFirstChildOfClass("Backpack")
+        collectDirectTools(backpack, names, seen)
+
+        -- Current game build exposes the equipped visual weapon here.
+        if #names < 4 then
+            local rig = model:FindFirstChild("WeaponRig")
+            local container = rig and rig:FindFirstChild("Weapon")
+            if container then
+                for _, obj in ipairs(container:GetChildren()) do
+                    if obj:IsA("Model") or obj:IsA("Tool") then
+                        addInventoryName(names, seen, obj)
+                        if #names >= 4 then break end
+                    end
+                end
+            end
+        end
+
+        local slots = { "Empty", "Empty", "Empty", "Empty" }
+        for i = 1, math.min(4, #names) do slots[i] = names[i] end
+        return slots
+    end
+
     function Registry.GetDummyInventory(model)
         local slots = { "Empty", "Empty", "Empty", "Empty" }
         if not Registry.IsCandidate(model) then return slots end
+
+        -- Preserve legacy snapshot support when an old managed clone exists.
         local folder = model:FindFirstChild("LvkHubDummyInventory")
-        if not folder then return slots end
-        for i = 1, 4 do
-            local v = folder:FindFirstChild("Slot" .. i)
-            if v and v:IsA("StringValue") then slots[i] = v.Value end
+        if folder then
+            local hasValue = false
+            for i = 1, 4 do
+                local v = folder:FindFirstChild("Slot" .. i)
+                if v and v:IsA("StringValue") then
+                    slots[i] = cleanInventoryLabel(v.Value)
+                    if slots[i] ~= "" and slots[i] ~= "Empty" then hasValue = true end
+                end
+            end
+            if hasValue then return slots end
         end
-        return slots
+
+        -- V3 no longer creates dummy snapshots. Read only replicated equipment.
+        return replicatedInventorySnapshot(model)
     end
 
     local function rescanVehicles()
@@ -231,7 +321,6 @@ return function(SourcePolicy)
             table.insert(Registry._connections, src.ChildRemoved:Connect(function() task.defer(Registry.RefreshTargets) end))
         end
 
-        -- Não ouvimos mais TestPlayers
         local tf = ensureTestFolder()
         table.insert(Registry._connections, tf.ChildAdded:Connect(function() task.defer(rebuildCandidates) end))
         table.insert(Registry._connections, tf.ChildRemoved:Connect(function() task.defer(rebuildCandidates) end))

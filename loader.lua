@@ -16,7 +16,12 @@ shared.LvkHubStartupHidden = true
 
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
-local BASE = "https://raw.githubusercontent.com/Lvk777/LvkHub.exe-V2/main/"
+local SOURCE_BRANCH = tostring(shared.LvkHubSourceBranch or "main")
+local BUILD_TAG = "compat-2026-09-inventory-v4"
+shared.LvkHubRequestedSourceBranch = SOURCE_BRANCH
+shared.LvkHubLoadedSourceBranch = nil
+shared.LvkHubBuildTag = nil
+local BASE = "https://raw.githubusercontent.com/Lvk777/LvkHub.exe-V2/" .. SOURCE_BRANCH .. "/"
 
 local function loadModule(path)
     local src = game:HttpGet(BASE .. path, true)
@@ -144,6 +149,8 @@ local ok, err = pcall(function()
     loadModule("src/Utility/Main.lua")(State, Registry, UI)
     loadModule("src/Utility/Presets.lua")(State, Registry, UI)
     loadModule("src/Utility/SoloSurvivalV2.lua")(State, Registry, UI)
+    loadModule("src/Utility/ServerStateMonitorV1.lua")(State, Registry, UI)
+    loadModule("src/Utility/RuntimeHealthMonitorV1.lua")(State, Registry, TargetProvider, UI)
     loadModule("src/World/Main.lua")(State, Registry, UI)
 
     loadModule("src/Local/MainV4.lua")(State, Registry, UI)
@@ -159,6 +166,7 @@ local ok, err = pcall(function()
 
     loadModule("src/UI/Keybinds.lua")(State, TargetProvider, UI)
     loadModule("src/UI/DummyTargetInfo.lua")(State, TargetProvider, UI)
+    loadModule("src/UI/InventoryViewerV4.lua")(State, TargetProvider, UI)
     loadModule("src/UI/CompactLabels.lua")(State, UI)
     loadModule("src/UI/LocalPopupPolishV6.lua")(State, UI)
     loadModule("src/UI/SoloSurvivalToLocal.lua")(State, UI)
@@ -203,6 +211,8 @@ local ok, err = pcall(function()
         pcall(UI.ApplyFinalLayout)
     end
 
+    shared.LvkHubLoadedSourceBranch = SOURCE_BRANCH
+    shared.LvkHubBuildTag = BUILD_TAG
     shared.LvkHubStartupHidden = false
 
     -- Reveal the independent FOV layer and the main GUI in the same frame.
@@ -214,5 +224,7 @@ end)
 if not ok then
     shared.LvkHubStartupHidden = nil
     shared.LvkHubExeLoaded = nil
+    shared.LvkHubLoadedSourceBranch = nil
+    shared.LvkHubBuildTag = nil
     warn("[LvkHub.exe] load failed: " .. tostring(err))
 end
