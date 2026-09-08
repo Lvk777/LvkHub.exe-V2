@@ -16,7 +16,8 @@ shared.LvkHubStartupHidden = true
 
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
-local BASE = "https://raw.githubusercontent.com/Lvk777/LvkHub.exe-V2/main/"
+local SOURCE_BRANCH = tostring(shared.LvkHubSourceBranch or "main")
+local BASE = "https://raw.githubusercontent.com/Lvk777/LvkHub.exe-V2/" .. SOURCE_BRANCH .. "/"
 
 local function loadModule(path)
     local src = game:HttpGet(BASE .. path, true)
