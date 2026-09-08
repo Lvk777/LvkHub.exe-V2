@@ -144,6 +144,7 @@ local ok, err = pcall(function()
     loadModule("src/Utility/Main.lua")(State, Registry, UI)
     loadModule("src/Utility/Presets.lua")(State, Registry, UI)
     loadModule("src/Utility/SoloSurvivalV2.lua")(State, Registry, UI)
+    loadModule("src/Utility/ServerStateMonitorV1.lua")(State, Registry, UI)
     loadModule("src/World/Main.lua")(State, Registry, UI)
 
     loadModule("src/Local/MainV4.lua")(State, Registry, UI)
