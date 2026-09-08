@@ -5,7 +5,6 @@ return function(State, Registry, TargetProvider, UI)
     local Players = game:GetService("Players")
     local RunService = game:GetService("RunService")
     local Workspace = game:GetService("Workspace")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
     local LP = Players.LocalPlayer
     local page = UI.Pages.Utility or UI.Pages.Local
@@ -27,12 +26,14 @@ return function(State, Registry, TargetProvider, UI)
         State.Utility.RuntimeHealthAutoRepair = v == true
     end)
 
+    local _, buildLabel = UI.Row(page, "Build: checking...", 38)
     local _, coreLabel = UI.Row(page, "Core: checking...", 38)
     local _, targetLabel = UI.Row(page, "Targets: checking...", 38)
-    local _, gameLabel = UI.Row(page, "Game paths: checking...", 42)
+    local _, gameLabel = UI.Row(page, "Game paths: checking...", 48)
+    local _, movementLabel = UI.Row(page, "Movement: checking...", 42)
     local _, repairLabel = UI.Row(page, "Recovery: idle", 38)
 
-    for _, label in ipairs({coreLabel, targetLabel, gameLabel, repairLabel}) do
+    for _, label in ipairs({buildLabel, coreLabel, targetLabel, gameLabel, movementLabel, repairLabel}) do
         label.TextColor3 = Color3.fromRGB(145, 150, 170)
         label.TextSize = 11
         label.TextWrapped = true
@@ -48,11 +49,6 @@ return function(State, Registry, TargetProvider, UI)
         ConsecutiveTargetFailures = 0,
     }
     shared.LvkHubRuntimeHealth = health
-
-    local function safeCall(fn, ...)
-        if type(fn) ~= "function" then return false, "missing function" end
-        return pcall(fn, ...)
-    end
 
     local function countPlayersWithCharacters()
         local n = 0
@@ -138,7 +134,34 @@ return function(State, Registry, TargetProvider, UI)
         }
     end
 
-    local function coreHealth()
+    local function movementHealth()
+        local runtime = shared.LvkHubMovementRuntime
+        local loaded = type(runtime) == "table" and tonumber(runtime.Version) ~= nil
+        local requested = State.Movement and State.Movement.Noclip == true or false
+        local applied = loaded and runtime.NoclipEnabled == true or false
+        local remaining = loaded and tonumber(runtime.NoclipRemainingCollidable) or nil
+        local lastTick = loaded and tonumber(runtime.LastNoclipTick) or nil
+        local fresh = lastTick and (os.clock() - lastTick) < 1.0 or false
+
+        local healthy = loaded
+        if requested then
+            healthy = loaded and applied and fresh and remaining ~= nil
+        end
+
+        return {
+            loaded = loaded,
+            version = loaded and runtime.Version or nil,
+            noclipRequested = requested,
+            noclipApplied = applied,
+            remainingCollidable = remaining,
+            appliedParts = loaded and tonumber(runtime.NoclipAppliedParts) or nil,
+            lastTick = lastTick,
+            fresh = fresh,
+            healthy = healthy,
+        }
+    end
+
+    local function coreHealth(movement)
         local requiredRegistry = {
             "RefreshTargets", "GetCandidates", "IsCandidate", "CountCandidates", "RootOf", "HumanoidOf"
         }
@@ -167,11 +190,16 @@ return function(State, Registry, TargetProvider, UI)
             table.insert(missing, "UI")
         end
 
+        if not movement.loaded then
+            table.insert(missing, "MovementRuntime")
+        end
+
         return #missing == 0, missing
     end
 
     local function snapshot()
-        local coreOK, missing = coreHealth()
+        local movement = movementHealth()
+        local coreOK, missing = coreHealth(movement)
         local targets = targetHealth()
         local weaponText, weaponOK = currentWeaponPathStatus()
         local vehiclesText, vehiclesOK, vehicleCount = vehiclePathStatus()
@@ -181,9 +209,13 @@ return function(State, Registry, TargetProvider, UI)
 
         local data = {
             time = os.clock(),
+            branch = shared.LvkHubLoadedSourceBranch,
+            requestedBranch = shared.LvkHubSourceBranch,
+            buildTag = shared.LvkHubBuildTag,
             coreOK = coreOK,
             missing = missing,
             targets = targets,
+            movement = movement,
             weapon = {ok = weaponOK, text = weaponText},
             weaponShotBuilder = shotBuilder and shotBuilder:GetFullName() or nil,
             vehicles = {ok = vehiclesOK, text = vehiclesText, count = vehicleCount},
@@ -201,7 +233,6 @@ return function(State, Registry, TargetProvider, UI)
         local repaired = {}
         local errors = {}
 
-        -- Restore shared reference if another local script cleared it.
         if shared.LvkHubTargetProvider ~= TargetProvider and type(TargetProvider) == "table" then
             shared.LvkHubTargetProvider = TargetProvider
             table.insert(repaired, "shared target provider")
@@ -253,17 +284,26 @@ return function(State, Registry, TargetProvider, UI)
     local function paint(data)
         if not State.Utility.RuntimeHealthEnabled then
             health.Enabled = false
+            buildLabel.Text = "Build: monitor off"
             coreLabel.Text = "Core: monitor off"
             targetLabel.Text = "Targets: monitor off"
             gameLabel.Text = "Game paths: monitor off"
+            movementLabel.Text = "Movement: monitor off"
             repairLabel.Text = "Recovery: monitor off"
             return
         end
 
         health.Enabled = true
 
+        local branch = tostring(data.branch or "unknown")
+        local build = tostring(data.buildTag or "unknown")
+        buildLabel.Text = "Build: " .. build .. " • branch: " .. branch
+        buildLabel.TextColor3 = (data.branch and data.buildTag)
+            and Color3.fromRGB(80, 225, 125)
+            or Color3.fromRGB(245, 170, 80)
+
         if data.coreOK then
-            coreLabel.Text = "Core: Registry + TargetProvider + UI ready"
+            coreLabel.Text = "Core: Registry + TargetProvider + UI + Movement ready"
             coreLabel.TextColor3 = Color3.fromRGB(80, 225, 125)
         else
             coreLabel.Text = "Core issue: " .. table.concat(data.missing or {}, ", ")
@@ -285,6 +325,24 @@ return function(State, Registry, TargetProvider, UI)
         gameLabel.TextColor3 = (data.weapon.ok and data.vehicles.ok and data.weaponShotBuilder)
             and Color3.fromRGB(80, 225, 125)
             or Color3.fromRGB(245, 170, 80)
+
+        local m = data.movement
+        if not m.loaded then
+            movementLabel.Text = "Movement: runtime missing • start a fresh session/build"
+            movementLabel.TextColor3 = Color3.fromRGB(245, 80, 80)
+        elseif m.noclipRequested then
+            movementLabel.Text = string.format(
+                "Movement v%s • Noclip ON • applied %s • collidable %s • tick %s",
+                tostring(m.version),
+                m.appliedParts == nil and "n/a" or tostring(m.appliedParts),
+                m.remainingCollidable == nil and "n/a" or tostring(m.remainingCollidable),
+                m.fresh and "live" or "stale"
+            )
+            movementLabel.TextColor3 = m.healthy and Color3.fromRGB(80, 225, 125) or Color3.fromRGB(245, 170, 80)
+        else
+            movementLabel.Text = "Movement v" .. tostring(m.version) .. " • Noclip OFF • runtime live"
+            movementLabel.TextColor3 = Color3.fromRGB(80, 225, 125)
+        end
 
         if health.LastRepair then
             repairLabel.Text = string.format(
