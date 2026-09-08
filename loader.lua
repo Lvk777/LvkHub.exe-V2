@@ -17,6 +17,8 @@ shared.LvkHubStartupHidden = true
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local SOURCE_BRANCH = tostring(shared.LvkHubSourceBranch or "main")
+shared.LvkHubLoadedSourceBranch = SOURCE_BRANCH
+shared.LvkHubBuildTag = "compat-2026-09-noclip-v2"
 local BASE = "https://raw.githubusercontent.com/Lvk777/LvkHub.exe-V2/" .. SOURCE_BRANCH .. "/"
 
 local function loadModule(path)
