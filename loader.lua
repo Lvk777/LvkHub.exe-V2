@@ -17,8 +17,10 @@ shared.LvkHubStartupHidden = true
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local SOURCE_BRANCH = tostring(shared.LvkHubSourceBranch or "main")
-shared.LvkHubLoadedSourceBranch = SOURCE_BRANCH
-shared.LvkHubBuildTag = "compat-2026-09-noclip-v2"
+local BUILD_TAG = "compat-2026-09-noclip-v2"
+shared.LvkHubRequestedSourceBranch = SOURCE_BRANCH
+shared.LvkHubLoadedSourceBranch = nil
+shared.LvkHubBuildTag = nil
 local BASE = "https://raw.githubusercontent.com/Lvk777/LvkHub.exe-V2/" .. SOURCE_BRANCH .. "/"
 
 local function loadModule(path)
@@ -208,6 +210,8 @@ local ok, err = pcall(function()
         pcall(UI.ApplyFinalLayout)
     end
 
+    shared.LvkHubLoadedSourceBranch = SOURCE_BRANCH
+    shared.LvkHubBuildTag = BUILD_TAG
     shared.LvkHubStartupHidden = false
 
     -- Reveal the independent FOV layer and the main GUI in the same frame.
@@ -219,5 +223,7 @@ end)
 if not ok then
     shared.LvkHubStartupHidden = nil
     shared.LvkHubExeLoaded = nil
+    shared.LvkHubLoadedSourceBranch = nil
+    shared.LvkHubBuildTag = nil
     warn("[LvkHub.exe] load failed: " .. tostring(err))
 end
